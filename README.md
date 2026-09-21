@@ -88,3 +88,8 @@ omarchy-shell local.werewolf-sheet status
 omarchy-shell shell rescanPlugins
 omarchy restart shell
 ```
+
+## Uninstall
+```bash
+omarchy plugin remove local.werewolf-sheet
+```
