@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "local.werewolf-sheet",
+  "name": "Werewolf Sheet",
+  "version": "0.1.0",
+  "author": "local",
+  "license": "MIT",
+  "description": "Floating corner-anchored WTA20 character sheet editor. Edits like the PDF, exports plain text for LLM roleplay. Theme-aware (oShelf / cliamp-dock style).",
+  "kinds": ["service", "bar-widget"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "SheetService.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Werewolf Sheet",
+    "description": "Bar icon toggles the floating character sheet. Right-click for placement + output settings.",
+    "category": "Utilities",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}
