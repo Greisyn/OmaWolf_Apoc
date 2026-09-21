@@ -3,6 +3,11 @@
 Corner-anchored WTA20 character sheet editor, in the style of
 `io.github.i12bp8.oshelf` / `local.cliamp-dock`.
 
+## Install
+```bash
+omarchy plugin add https://github.com/Greisyn/OmaWolf_Apoc.git --enable
+```
+
 - **Edit like the PDF**: identity header, Attributes, Talents/Skills/Knowledges,
   Renown/pools, Gifts/Backgrounds/notes.
 - **Export plain text for LLM roleplay**: same format as
