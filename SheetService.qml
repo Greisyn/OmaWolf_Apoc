@@ -90,11 +90,14 @@ Item {
   function applyData(d) {
     if (!d || typeof d !== "object") return;
     var keys = Sheet.defaultData();
+    var lim = Sheet.limits();
     for (var k in keys) {
       if (d[k] === undefined || root[k] === undefined) continue;
       if (typeof keys[k] === "number") {
         var n = parseInt(d[k], 10);
-        root[k] = isFinite(n) ? n : keys[k];
+        if (!isFinite(n)) n = keys[k];
+        if (lim[k] !== undefined) n = Math.max(lim[k][0], Math.min(lim[k][1], n));
+        root[k] = n;
       } else {
         root[k] = String(d[k]);
       }
@@ -128,11 +131,29 @@ Item {
     root.writeFile(root.characterPath, text, saveWriter);
   }
 
-  // Deterministic file writer (FileView.setText silently drops writes when
-  // its path was just (re)assigned or the file is missing). Quoted heredoc:
-  // literal content, no expansion; recreated on every call.
+  // Deterministic file writer via quoted heredoc: literal content, no
+  // expansion. The terminator tag is random per write (and regenerated on
+  // collision) so sheet text can never break out of the heredoc and reach
+  // the shell. The destination folder is created first so user-typed
+  // output paths work without pre-creating directories.
   function shellQuote(s) {
     return "'" + String(s).replace(/'/g, "'\\''") + "'";
+  }
+
+  function writeFile(path, text, proc) {
+    var body = String(text);
+    if (body === "" || body.charAt(body.length - 1) !== "\n") body += "\n";
+    var tag = "";
+    do {
+      tag = "__WEREWOLF_SHEET_" + Math.random().toString(36).slice(2)
+          + Date.now().toString(36) + "__";
+    } while (body.indexOf(tag) >= 0);
+    var dir = String(path).slice(0, Math.max(0, String(path).lastIndexOf("/")));
+    var setup = (dir !== "" ? "mkdir -p " + root.shellQuote(dir) + " && " : "");
+    proc.command = ["sh", "-c",
+      setup + "cat > " + root.shellQuote(path) + " <<'" + tag + "'\n" + body + tag + "\n"];
+    if (proc.running) proc.running = false;
+    proc.running = true;
   }
 
   function expandPath(p) {
@@ -155,13 +176,6 @@ Item {
 
   function exportFullPath() {
     return root.exportDir() + "/" + root.exportFileName();
-  }
-
-  function writeFile(path, text, proc) {
-    proc.command = ["sh", "-c",
-      "cat > " + root.shellQuote(path) + " <<'__WEREWOLF_SHEET_EOF__'\n" + text + "__WEREWOLF_SHEET_EOF__\n"];
-    if (proc.running) proc.running = false;
-    proc.running = true;
   }
 
   Process {
@@ -218,8 +232,10 @@ Item {
   }
 
   function copyForLLM() {    // Best-effort clipboard via wl-copy / xclip; export always works regardless.
-    var txt = root.renderText().replace(/'/g, "'\\''");
-    copyProc.command = ["sh", "-c", "printf '%s' '" + txt.slice(0, 60000) + "' | (wl-copy 2>/dev/null || xclip -selection clipboard 2>/dev/null || true)"];
+    // Truncate BEFORE single-quote escaping so a cut can never split an
+    // escape sequence and unbalance the quoting.
+    var txt = root.renderText().slice(0, 60000).replace(/'/g, "'\\''");
+    copyProc.command = ["sh", "-c", "printf '%s' '" + txt + "' | (wl-copy 2>/dev/null || xclip -selection clipboard 2>/dev/null || true)"];
     copyProc.running = true;
     root.status = "Copied for LLM (if clipboard tool present). Export to file to be sure.";
     exportRinse.restart();

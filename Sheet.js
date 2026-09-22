@@ -94,6 +94,25 @@ function clampPool(v) {
     return Math.max(0, Math.min(10, n));
 }
 
+// Valid [lo, hi] range per numeric data key, mirroring the +/- limits in
+// SheetWindow.qml. Used by the service to clamp hand-edited JSON on load
+// so crafted files cannot inject out-of-range values into the UI/export.
+function limits() {
+    var lim = {};
+    var ag = attributeGroups();
+    for (var g = 0; g < ag.length; g++)
+        for (var j = 0; j < ag[g].keys.length; j++)
+            lim[ag[g].keys[j]] = [0, 5];
+    var bg = abilityGroups();
+    for (var h = 0; h < bg.length; h++)
+        for (var k = 0; k < bg[h].keys.length; k++)
+            lim[bg[h].keys[k]] = [0, 5];
+    var pk = poolKeys();
+    for (var p = 0; p < pk.length; p++)
+        lim[pk[p]] = [0, 10];
+    return lim;
+}
+
 function bulletBlock(s) {
     var lines = String(s || "").split("\n");
     var out = [];

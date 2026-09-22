@@ -15,7 +15,7 @@ omarchy plugin add https://github.com/Greisyn/OmaWolf_Apoc.git --enable
 - **Floating + corner-anchored**: dwell the corner handle to reveal,
   leave to collapse, pin open, Esc closes. Corner (TL/TR/BL/BR) + size in settings.
 - **Output path is configurable**: settings panel + sheet footer. Default:
-  `~/Pictures/werewolf-character.txt`
+  `~/Pictures/<Name>.txt` (one file per character)
 - **Theme-aware**: all chrome uses `Color.*` / `Style.*` — omarchy themes repaint it live.
 - **Floating W anchor (drives-style)**: small always-visible square in a screen
   corner showing your transparent `icon.png` — hover-dwell or tap reveals the
@@ -34,7 +34,7 @@ omarchy plugin add https://github.com/Greisyn/OmaWolf_Apoc.git --enable
 - `manifest.json` — service + bar-widget
 - `SheetService.qml` — character data, JSON persistence, export, per-screen windows, IPC
 - `SheetWindow.qml` — floating editor card (logo-only header, icon pin/close actions)
-- `SheetGlyph.qml` / `SheetAction.qml` — theme-aware line-icon buttons (pin/close/trash style)
+- `SheetGlyph.qml` / `SheetAction.qml` — theme-aware line-icon buttons (pin/close/check style)
 - `SheetConfig.qml` — corner/size/motion/output prefs → `~/.config/omarchy/local.werewolf-sheet.json`
 - `Sheet.js` — field lists + plain-text renderer
 - `BarWidget.qml` — bar icon (left = toggle, right = settings)
@@ -75,7 +75,7 @@ omarchy restart shell
 
 - Character JSON: `~/.config/omarchy/local.werewolf-sheet-character.json`
 - Prefs JSON: `~/.config/omarchy/local.werewolf-sheet.json`
-- Export default: `~/Pictures/werewolf-character.txt`
+- Export default: `~/Pictures/<Name>.txt` (one file per character)
 
 ## Commands
 

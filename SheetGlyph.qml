@@ -27,12 +27,6 @@ Canvas {
       c.moveTo(6, 6); c.lineTo(16, 16); c.moveTo(16, 6); c.lineTo(6, 16);
     } else if (kind === "check") {
       c.moveTo(5, 12.5); c.lineTo(9.5, 17); c.lineTo(17, 7);
-    } else if (kind === "trash") {
-      c.moveTo(6, 7); c.lineTo(16, 7);
-      c.moveTo(9, 7); c.lineTo(9, 5); c.lineTo(13, 5); c.lineTo(13, 7);
-      c.moveTo(7.5, 7); c.lineTo(8.5, 18); c.lineTo(13.5, 18); c.lineTo(14.5, 7);
-      c.moveTo(10.2, 10); c.lineTo(10.2, 15.5);
-      c.moveTo(11.8, 10); c.lineTo(11.8, 15.5);
     }
     c.stroke();
   }

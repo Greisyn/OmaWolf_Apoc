@@ -22,7 +22,6 @@ PanelWindow {
   readonly property bool freeMode: cfg.anchorMode === "free"
   readonly property bool atRight: cfg.corner === "topRight" || cfg.corner === "bottomRight"
   readonly property bool atBottom: cfg.corner === "bottomLeft" || cfg.corner === "bottomRight"
-  readonly property bool isTop: !atBottom
   readonly property real topClearance: 44 // keep clear of the top bar
   readonly property bool reducedMotion: cfg.reducedMotion
   property bool expanded: false
@@ -106,7 +105,6 @@ PanelWindow {
   function collapse() {
     if (cfg.keepOpen) return;
     expanded = false;
-    content.forceActiveFocus();
     stopDwell();
   }
   function toggle() { expanded ? collapse() : reveal(); }
@@ -154,6 +152,9 @@ PanelWindow {
   }
 
   onEngagedChanged: { if (engaged) closeTimer.stop(); else if (expanded) closeTimer.restart(); }
+  // Refresh the import path each time the card opens so it tracks the
+  // current output folder instead of going stale after settings edits.
+  onExpandedChanged: { if (expanded) importField.text = cfg.outputDir + "/"; }
 
   Timer { id: closeTimer; interval: cfg.closeDelay; onTriggered: { if (!root.engaged) root.collapse(); } }
   Timer { id: hoverTimer; interval: cfg.openDelay; onTriggered: { if (cornerHover.hovered && !root.dragging) root.reveal(); } }
@@ -297,6 +298,8 @@ PanelWindow {
 
           SectionHeader { text: "IDENTITY" }
           FieldRow { label: "Name"; initial: service.charName; onCommit: function(v) { service.charName = v; service.saveSoon(); } }
+          FieldRow { label: "Player"; initial: service.player; onCommit: function(v) { service.player = v; service.saveSoon(); } }
+          FieldRow { label: "Chronicle"; initial: service.chronicle; onCommit: function(v) { service.chronicle = v; service.saveSoon(); } }
           FieldRow { label: "Breed"; initial: service.breed; onCommit: function(v) { service.breed = v; service.saveSoon(); } }
           FieldRow { label: "Auspice"; initial: service.auspice; onCommit: function(v) { service.auspice = v; service.saveSoon(); } }
           FieldRow { label: "Tribe"; initial: service.tribe; onCommit: function(v) { service.tribe = v; service.saveSoon(); } }
@@ -367,12 +370,21 @@ PanelWindow {
           DotRow { label: "Glory"; max: 10; value: service.glory; onDec: function() { service.bump("glory", -1, 0, 10); } onInc: function() { service.bump("glory", 1, 0, 10); } }
           DotRow { label: "Honor"; max: 10; value: service.honor; onDec: function() { service.bump("honor", -1, 0, 10); } onInc: function() { service.bump("honor", 1, 0, 10); } }
           DotRow { label: "Wisdom"; max: 10; value: service.wisdom; onDec: function() { service.bump("wisdom", -1, 0, 10); } onInc: function() { service.bump("wisdom", 1, 0, 10); } }
+          DotRow { label: "Experience"; max: 10; value: service.experience; onDec: function() { service.bump("experience", -1, 0, 10); } onInc: function() { service.bump("experience", 1, 0, 10); } }
 
           SectionSeparator { }
-          SectionHeader { text: "GIFTS / BACKGROUNDS / NOTES" }
-          MultiLine { label: "Gifts (one per line)"; initial: service.gifts; onCommit: function(v) { service.gifts = v; service.saveSoon(); } }
+          SectionHeader { text: "ADVANTAGES / DESCRIPTION" }
           MultiLine { label: "Backgrounds"; initial: service.backgrounds; onCommit: function(v) { service.backgrounds = v; service.saveSoon(); } }
+          MultiLine { label: "Gifts (one per line)"; initial: service.gifts; onCommit: function(v) { service.gifts = v; service.saveSoon(); } }
+          MultiLine { label: "Rites"; initial: service.rites; onCommit: function(v) { service.rites = v; service.saveSoon(); } }
+          MultiLine { label: "Fetishes"; initial: service.fetishes; onCommit: function(v) { service.fetishes = v; service.saveSoon(); } }
+          MultiLine { label: "Merits"; initial: service.merits; onCommit: function(v) { service.merits = v; service.saveSoon(); } }
+          MultiLine { label: "Flaws"; initial: service.flaws; onCommit: function(v) { service.flaws = v; service.saveSoon(); } }
+          MultiLine { label: "Gear / Equipment"; initial: service.gear; onCommit: function(v) { service.gear = v; service.saveSoon(); } }
           MultiLine { label: "History"; initial: service.history; onCommit: function(v) { service.history = v; service.saveSoon(); } }
+          MultiLine { label: "Appearance"; initial: service.appearance; onCommit: function(v) { service.appearance = v; service.saveSoon(); } }
+          MultiLine { label: "Personality"; initial: service.personality; onCommit: function(v) { service.personality = v; service.saveSoon(); } }
+          MultiLine { label: "Goals"; initial: service.goals; onCommit: function(v) { service.goals = v; service.saveSoon(); } }
           MultiLine { label: "OOC instructions to LLM"; initial: service.ooc; onCommit: function(v) { service.ooc = v; service.saveSoon(); } }
 
           SectionSeparator { }

@@ -1,6 +1,5 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -204,6 +203,13 @@ Panel {
           }
         }
         SwitchRow { label: "Reduced motion"; checked: config.reducedMotion; onFlipped: config.set("reducedMotion", !config.reducedMotion) }
+        RowLabel { text: "Card open/close motion (" + config.motionDuration + "ms, 0 = instant)"; width: parent.width }
+        PanelSlider {
+          width: parent.width
+          minimum: 0; maximum: 600; step: 10
+          value: config.motionDuration
+          onMoved: function(v) { config.set("motionDuration", Math.round(v)); }
+        }
       }
     }
   }
