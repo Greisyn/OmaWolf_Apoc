@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "local",
   "license": "MIT",
-  "description": "Floating corner-anchored WTA20 character sheet editor. Edits like the PDF, exports plain text for LLM roleplay. Theme-aware (oShelf / cliamp-dock style).",
+  "description": "Bar-icon-driven WTA20 character sheet editor. Edits like the PDF, exports plain text for LLM roleplay. Stays open until X closes it (pin blocks closing). Theme-aware (oShelf / cliamp-dock style).",
   "kinds": ["service", "bar-widget"],
   "keepLoaded": true,
   "entryPoints": {
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Werewolf Sheet",
-    "description": "Bar icon toggles the floating character sheet. Right-click for placement + output settings.",
+    "description": "Bar icon toggles the character sheet card. Right-click for placement + output settings. Card stays open until X (pin blocks closing).",
     "category": "Utilities",
     "allowMultiple": false,
     "defaultSection": "right",

@@ -5,8 +5,9 @@ import Quickshell.Io
 import "Sheet.js" as Sheet
 
 // Owns character data, renders plain text (same format as werewolf_sheet.py),
-// exports to the user-chosen output path, mounts one corner-anchored
-// SheetWindow per screen. Theme-awareness lives in the windows (Color/Style).
+// exports to the user-chosen output path, mounts one SheetWindow card
+// per screen (bar-icon-driven, no floating anchor). Theme-awareness lives
+// in the windows (Color/Style).
 Item {
   id: root
   property var shell: null

@@ -3,8 +3,8 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// Bar surface: icon ONLY. Sheet floats as a corner-anchored card.
-// Left-click toggles, right-click opens settings (cliamp-dock pattern).
+// Bar surface: icon ONLY. The sheet card is bar-icon-driven (no floating
+// anchor): left-click toggles, right-click opens settings.
 BarWidget {
   id: root
   moduleName: "local.werewolf-sheet"

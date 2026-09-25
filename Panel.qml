@@ -3,7 +3,11 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// Settings panel. Opened from bar icon right-click only.
+// Settings panel. Opened from bar icon right-click only. This is the
+// auto-closing one: an outside click dismisses it (native KeyboardPanel
+// behavior), and it also closes by itself a few moments after the mouse
+// stops hovering it — see pokeIdle()/idleTimer below. Close button and
+// bar-icon toggle close it explicitly.
 // All colors from Color.* / Style.* so omarchy themes repaint it live.
 Panel {
   id: root
@@ -21,14 +25,25 @@ Panel {
 
   // Explicit two-way sync with KeyboardPanel (id kbPanel below). The
   // declarative `open: root.opened` binding is one-way AND is permanently
-  // severed the first time anything writes kbPanel.open directly — which is
-  // exactly what click-away dismiss does (KeyboardPanel.close()). So every
-  // path sets both ends explicitly and never relies on the binding:
+  // severed the first time anything writes kbPanel.open directly (which is
+  // what click-away dismiss does), so every path sets both ends explicitly
+  // and never relies on the binding:
   //  - open()/close() here drive controller + panel together.
   //  - onOpenChanged pushes panel-side closes (dismiss) back to controller.
-  function open() { root.controller.show(); kbPanel.open = true; }
-  function close() { root.controller.hide(); kbPanel.open = false; }
+  function open() { root.controller.show(); kbPanel.open = true; root.pokeIdle(); }
+  function close() { idleTimer.stop(); root.controller.hide(); kbPanel.open = false; }
   function toggle() { root.opened ? root.close() : root.open(); }
+
+  // Idle auto-close: while the settings card is open, hovering it holds it
+  // open; when the mouse isn't on it, idleTimer closes it a few moments
+  // later (the countdown also runs from open, so an ignored settings card
+  // never lingers). Re-entering cancels the countdown.
+  function pokeIdle() {
+    if (!kbPanel.open) { idleTimer.stop(); return; }
+    if (settingsHover.hovered) idleTimer.stop();
+    else idleTimer.restart();
+  }
+  Timer { id: idleTimer; interval: 3000; repeat: false; onTriggered: { if (kbPanel.open && !settingsHover.hovered) root.close(); } }
 
   component RowLabel: Text {
     textFormat: Text.PlainText
@@ -72,7 +87,10 @@ Panel {
     // panel, bypassing PanelController (the open: binding is one-way).
     // Without this push-back, the next toggle() sees opened==true and
     // closes (invisibly) instead of opening.
-    onOpenChanged: { if (!open) root.controller.hide(); }
+    onOpenChanged: {
+      if (open) root.pokeIdle();
+      else { idleTimer.stop(); root.controller.hide(); }
+    }
     centerOnBar: false
     contentWidth: fittedContentWidth(Style.space(440))
     contentHeight: fittedContentHeight(contentColumn.implicitHeight)
@@ -84,6 +102,13 @@ Panel {
       clip: true
       boundsBehavior: Flickable.StopAtBounds
       interactive: contentHeight > height
+      // Hover sensor for the idle auto-close. HoverHandler only observes —
+      // it never grabs clicks, so scrolling, fields and buttons are
+      // unaffected.
+      HoverHandler {
+        id: settingsHover
+        onHoveredChanged: root.pokeIdle()
+      }
 
       Column {
         id: contentColumn
@@ -106,28 +131,23 @@ Panel {
           WidgetButton { text: "Toggle"; onPressed: function() { Quickshell.execDetached(["omarchy-shell", "local.werewolf-sheet", "toggle"]); } }
           WidgetButton { text: "Export"; onPressed: function() { Quickshell.execDetached(["omarchy-shell", "local.werewolf-sheet", "exportSheet"]); } }
         }
-        SwitchRow { label: "Pin open (no auto-collapse)"; checked: config.keepOpen; onFlipped: config.set("keepOpen", !config.keepOpen) }
+        SwitchRow { label: "Pin (X cannot close until unpinned)"; checked: config.keepOpen; onFlipped: config.set("keepOpen", !config.keepOpen) }
 
-        SectionHeader { text: "Corner anchor" }
-        SwitchRow { label: "Show floating W square (off = bar icon only)"; checked: config.showAnchor; onFlipped: config.set("showAnchor", !config.showAnchor) }
-        SwitchRow { label: "Lock square in place (no dragging)"; checked: config.anchorLocked; onFlipped: config.set("anchorLocked", !config.anchorLocked) }
+        SectionHeader { text: "Card placement" }
         RowLabel {
           width: parent.width; wrapMode: Text.WordWrap
-          text: config.anchorMode === "free" ? "Square is free-floating — drag it anywhere, drop near a corner to snap." : "Square is snapped to a corner — drag it to float it free."
+          text: "The sheet opens from the bar icon. Drag its header to float it anywhere — the drop position is saved. Corner buttons snap it back."
+        }
+        RowLabel {
+          width: parent.width; wrapMode: Text.WordWrap
+          text: config.placeMode === "free" ? "Card is free-floating (dragged to its spot)." : "Card is snapped to a corner."
         }
         Row {
           width: parent.width; spacing: Style.spacing.sm
-          WidgetButton { text: "TL"; active: config.anchorMode === "corner" && config.corner === "topLeft"; onPressed: function() { config.set("corner", "topLeft"); config.set("anchorMode", "corner"); } }
-          WidgetButton { text: "TR"; active: config.anchorMode === "corner" && config.corner === "topRight"; onPressed: function() { config.set("corner", "topRight"); config.set("anchorMode", "corner"); } }
-          WidgetButton { text: "BL"; active: config.anchorMode === "corner" && config.corner === "bottomLeft"; onPressed: function() { config.set("corner", "bottomLeft"); config.set("anchorMode", "corner"); } }
-          WidgetButton { text: "BR"; active: config.anchorMode === "corner" && config.corner === "bottomRight"; onPressed: function() { config.set("corner", "bottomRight"); config.set("anchorMode", "corner"); } }
-        }
-        RowLabel { text: "Square size (" + config.buttonSize + ")"; width: parent.width }
-        PanelSlider {
-          width: parent.width
-          minimum: 40; maximum: 96; step: 2
-          value: config.buttonSize
-          onMoved: function(v) { config.set("buttonSize", Math.round(v)); }
+          WidgetButton { text: "TL"; active: config.placeMode === "corner" && config.corner === "topLeft"; onPressed: function() { config.set("corner", "topLeft"); config.set("placeMode", "corner"); } }
+          WidgetButton { text: "TR"; active: config.placeMode === "corner" && config.corner === "topRight"; onPressed: function() { config.set("corner", "topRight"); config.set("placeMode", "corner"); } }
+          WidgetButton { text: "BL"; active: config.placeMode === "corner" && config.corner === "bottomLeft"; onPressed: function() { config.set("corner", "bottomLeft"); config.set("placeMode", "corner"); } }
+          WidgetButton { text: "BR"; active: config.placeMode === "corner" && config.corner === "bottomRight"; onPressed: function() { config.set("corner", "bottomRight"); config.set("placeMode", "corner"); } }
         }
         Row {
           width: parent.width; spacing: Style.spacing.lg
@@ -153,19 +173,19 @@ Panel {
         Row {
           width: parent.width; spacing: Style.spacing.lg
           Column { width: (parent.width - parent.spacing) / 2; spacing: 2
-            RowLabel { text: "Width (" + config.sideWidth + ")"; width: parent.width }
+            RowLabel { text: "Width (" + config.sideWidth + ", min 600)"; width: parent.width }
             PanelSlider {
               width: parent.width
-              minimum: 340; maximum: 700; step: 10
+              minimum: 600; maximum: 700; step: 10
               value: config.sideWidth
               onMoved: function(v) { config.set("sideWidth", Math.round(v)); }
             }
           }
           Column { width: (parent.width - parent.spacing) / 2; spacing: 2
-            RowLabel { text: "Height (" + config.sideHeight + ")"; width: parent.width }
+            RowLabel { text: "Height (" + config.sideHeight + ", min 550)"; width: parent.width }
             PanelSlider {
               width: parent.width
-              minimum: 420; maximum: 1000; step: 10
+              minimum: 550; maximum: 1000; step: 10
               value: config.sideHeight
               onMoved: function(v) { config.set("sideHeight", Math.round(v)); }
             }
@@ -190,18 +210,7 @@ Panel {
           WidgetButton { text: "Close"; onPressed: function() { root.close(); } }
         }
 
-        SectionHeader { text: "Square dwell & motion" }
-        Row {
-          width: parent.width; spacing: Style.spacing.lg
-          Column { width: (parent.width - parent.spacing) / 2; spacing: 2
-            RowLabel { text: "Hover to open (" + config.openDelay + "ms)"; width: parent.width }
-            PanelSlider { width: parent.width; minimum: 150; maximum: 1500; step: 10; value: config.openDelay; onMoved: function(v) { config.set("openDelay", Math.round(v)); } }
-          }
-          Column { width: (parent.width - parent.spacing) / 2; spacing: 2
-            RowLabel { text: "Leave to close (" + config.closeDelay + "ms)"; width: parent.width }
-            PanelSlider { width: parent.width; minimum: 250; maximum: 2500; step: 10; value: config.closeDelay; onMoved: function(v) { config.set("closeDelay", Math.round(v)); } }
-          }
-        }
+        SectionHeader { text: "Motion" }
         SwitchRow { label: "Reduced motion"; checked: config.reducedMotion; onFlipped: config.set("reducedMotion", !config.reducedMotion) }
         RowLabel { text: "Card open/close motion (" + config.motionDuration + "ms, 0 = instant)"; width: parent.width }
         PanelSlider {

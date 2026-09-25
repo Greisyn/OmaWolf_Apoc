@@ -7,71 +7,49 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// Corner-anchored floating sheet editor, modeled on local.disk-mounter
-// DriveWindow: a small always-visible square in a screen corner showing the
-// W icon — hover-dwell (or tap) reveals the sheet card, leaving collapses it.
-// Only the square and the open card take input; all other pixels pass
-// through to the desktop via the layer-shell input mask.
+// Bar-icon-driven floating sheet editor (no floating square anchor).
+// Open/close from the bar icon (left-click), IPC (show/hide/toggle), the
+// card's X button, or Esc. No hover-dwell, no auto-collapse on mouse leave:
+// the card stays open until explicitly closed. Pin (keepOpen) blocks every
+// close path (X, Esc, bar toggle, IPC hide) until unpinned.
+// Only the open card takes input; all other pixels pass through to the
+// desktop via the layer-shell input mask.
 // All colors via Color.* / Style.* so omarchy themes repaint it live.
 PanelWindow {
   id: root
   required property var service
   required property var cfg
 
-  readonly property bool showAnchor: cfg.showAnchor
-  readonly property bool freeMode: cfg.anchorMode === "free"
   readonly property bool atRight: cfg.corner === "topRight" || cfg.corner === "bottomRight"
   readonly property bool atBottom: cfg.corner === "bottomLeft" || cfg.corner === "bottomRight"
   readonly property real topClearance: 44 // keep clear of the top bar
   readonly property bool reducedMotion: cfg.reducedMotion
   property bool expanded: false
   property real openness: expanded ? 1 : 0
-  property real dwellProgress: 0
-  // live drag offset (pixels from press origin while dragging)
+  readonly property real cardW: Math.min(width - 32, cfg.sideWidth)
+  readonly property real cardH: Math.min(height - 32, cfg.sideHeight)
+  // live drag offset (pixels from press origin while dragging the header)
   property real dragDX: 0
   property real dragDY: 0
   readonly property bool dragging: dragHandler.active
-  readonly property bool engaged: cornerHover.hovered || panelHover.hovered || cfg.keepOpen || root.dragging
-  readonly property real btnSize: cfg.buttonSize
-  // corner-snap base position
-  readonly property real cornerBaseX: atRight ? width - btnSize - cfg.cornerMarginX : cfg.cornerMarginX
-  readonly property real cornerBaseY: atBottom ? height - btnSize - cfg.cornerMarginY : cfg.cornerMarginY + topClearance
-  // free-floating base position (square center fractions)
-  readonly property real freeBaseX: cfg.freeX * width - btnSize / 2
-  readonly property real freeBaseY: cfg.freeY * height - btnSize / 2
-  readonly property real baseX: freeMode ? freeBaseX : cornerBaseX
-  readonly property real baseY: freeMode ? freeBaseY : cornerBaseY
-  readonly property real btnX: {
-    if (!showAnchor) return -1000; // park offscreen so the input mask stays clear
-    return Math.max(4, Math.min(width - btnSize - 4, baseX + (dragging ? dragDX : 0)));
-  }
-  readonly property real btnY: {
-    if (!showAnchor) return -1000;
-    return Math.max(4, Math.min(height - btnSize - 4, baseY + (dragging ? dragDY : 0)));
-  }
-  readonly property real cardW: Math.min(width - 32, cfg.sideWidth)
-  readonly property real cardH: Math.min(height - 32, cfg.sideHeight)
-  // corner-snap card position (below/above the square, clear of the bar)
+  // card position: corner snap, or free placement (drag the header —
+  // position persists in cfg.posX/posY as screen fractions)
   readonly property real cornerCardX: {
-    var x = atRight ? width - cardW - cfg.cornerMarginX : cfg.cornerMarginX;
-    return Math.max(16, Math.min(width - cardW - 16, x));
+    var cx = atRight ? width - cardW - cfg.cornerMarginX : cfg.cornerMarginX;
+    return Math.max(16, Math.min(width - cardW - 16, cx));
   }
   readonly property real cornerCardY: {
-    var y = atBottom ? height - cardH - cfg.cornerMarginY - (showAnchor ? btnSize + 12 : 16)
-      : cfg.cornerMarginY + topClearance + (showAnchor ? btnSize + 12 : 16);
-    return Math.max(16, Math.min(height - cardH - 16, y));
+    var cy = atBottom ? height - cardH - cfg.cornerMarginY - 16
+      : cfg.cornerMarginY + topClearance + 16;
+    return Math.max(16, Math.min(height - cardH - 16, cy));
   }
-  // free-floating card position (beside the square, clamped on-screen)
   readonly property real cardX: {
-    if (!freeMode) return cornerCardX;
-    return Math.max(16, Math.min(width - cardW - 16, btnX + btnSize / 2 - cardW / 2));
+    if (cfg.placeMode !== "free") return cornerCardX;
+    return Math.max(16, Math.min(width - cardW - 16, cfg.posX * width + (dragging ? dragDX : 0)));
   }
   readonly property real cardY: {
-    if (!freeMode) return cornerCardY;
-    var below = btnY + btnSize + 12;
-    var above = btnY - cardH - 12;
-    var y = (btnY + btnSize / 2 > height / 2) ? above : below;
-    return Math.max(16, Math.min(height - cardH - 16, y));
+    if (cfg.placeMode !== "free") return cornerCardY;
+    return Math.max(16, Math.min(height - cardH - 16, cfg.posY * height + (dragging ? dragDY : 0)));
   }
 
   anchors { top: true; bottom: true; left: true; right: true }
@@ -81,12 +59,9 @@ PanelWindow {
   WlrLayershell.namespace: "werewolf-sheet"
   WlrLayershell.keyboardFocus: expanded ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
   mask: Region {
-    item: cornerBtn
-    Region {
-      x: surface.x; y: surface.y
-      width: root.expanded ? surface.width : 0; height: surface.height
-      radius: surface.radius
-    }
+    x: surface.x; y: surface.y
+    width: root.expanded ? surface.width : 0; height: surface.height
+    radius: surface.radius
   }
 
   Behavior on openness {
@@ -97,17 +72,98 @@ PanelWindow {
   }
 
   function reveal() {
-    closeTimer.stop(); stopDwell();
     if (expanded) return;
     expanded = true;
     content.forceActiveFocus();
   }
+  // Explicit close only (X button, Esc, bar-icon toggle, IPC hide).
+  // Pin (keepOpen) blocks it — unpin first.
   function collapse() {
     if (cfg.keepOpen) return;
     expanded = false;
-    stopDwell();
   }
   function toggle() { expanded ? collapse() : reveal(); }
+  // Drop the card after a header drag: persist the free position (screen
+  // fractions, clamped 0..1 — on-screen clamping happens in cardX/cardY).
+  function commitCardDrag() {
+    var fx = (cfg.posX * width + root.dragDX) / width;
+    var fy = (cfg.posY * height + root.dragDY) / height;
+    root.dragDX = 0; root.dragDY = 0;
+    cfg.set("posX", Math.max(0, Math.min(1, fx)));
+    cfg.set("posY", Math.max(0, Math.min(1, fy)));
+  }
+  // ---- field search ----
+  // Live-dims rows whose label matches neither the query nor their section
+  // (so "stealth" finds Stealth, "talent" finds the whole TALENTS group).
+  // Enter jumps through matches (Shift+Enter backwards) with a highlight
+  // flash; Esc clears the query first instead of closing the card.
+  property var searchHits: []
+  property int searchIndex: -1
+  function applySearch() {
+    var q = searchField.text.trim().toLowerCase();
+    var st = { sec: "", sub: "", secMatch: {}, hits: [], headers: [] };
+    walkSearch(body, q, st);
+    for (var j = 0; j < st.headers.length; j++) {
+      var h = st.headers[j];
+      var t = String(h.text).toLowerCase();
+      h.searchDim = !(q === "" || t.indexOf(q) >= 0 || st.secMatch[t] === true);
+    }
+    root.searchHits = st.hits;
+    root.searchIndex = -1;
+    matchCount.text = q === "" ? "" : (st.hits.length === 0 ? "0" : String(st.hits.length));
+  }
+  // In-order walk of the sheet rows. Descends into containers (the
+  // 3-column Attributes / Abilities Rows) so nested rows and their
+  // sub-headers take part. Tracks two levels: the sheet section (level 0:
+  // Identity, Attributes, Abilities, ...) and the sub title inside it
+  // (level 1: Physical, Talents, ...). A row matches when its label, its
+  // sub title, or its section contains the query.
+  function walkSearch(item, q, st) {
+    var kids = item ? item.children : null;
+    if (!kids) return;
+    for (var i = 0; i < kids.length; i++) {
+      var it = kids[i];
+      if (!it) continue;
+      if (it.isSectionHeader === true) {
+        var t = String(it.text).toLowerCase();
+        if ((it.headerLevel || 0) === 0) { st.sec = t; st.sub = ""; }
+        else { st.sub = t; }
+        st.headers.push(it);
+      } else if (("searchMatch" in it)) {
+        var lab = String(it.label || "").toLowerCase();
+        var m = (q === "") || (lab.indexOf(q) >= 0)
+          || (st.sub !== "" && st.sub.indexOf(q) >= 0)
+          || (st.sec !== "" && st.sec.indexOf(q) >= 0);
+        it.searchMatch = m;
+        if (m && q !== "") {
+          st.hits.push(it);
+          if (st.sub !== "") st.secMatch[st.sub] = true;
+          if (st.sec !== "") st.secMatch[st.sec] = true;
+        }
+      }
+      if (it.children && it.children.length > 0) walkSearch(it, q, st);
+    }
+  }
+  function jumpSearch(dir) {
+    var hits = root.searchHits;
+    if (hits.length === 0) return;
+    root.searchIndex = (((root.searchIndex + dir) % hits.length) + hits.length) % hits.length;
+    var it = hits[root.searchIndex];
+    if (!it) return;
+    // body sits at the Flickable content origin, so body coords are
+    // content coords (nested rows need mapToItem, not raw y).
+    var p = it.mapToItem(body, 0, 0);
+    searchGlow.x = p.x;
+    searchGlow.y = p.y;
+    searchGlow.width = it.width;
+    searchGlow.height = it.height;
+    searchGlow.opacity = 1;
+    glowTimer.restart();
+    var target = p.y - 48;
+    var maxY = Math.max(0, scroller.contentHeight - scroller.height);
+    scroller.contentY = Math.max(0, Math.min(maxY, target));
+    matchCount.text = (root.searchIndex + 1) + "/" + hits.length;
+  }
   // Commit every visible text field into the sheet (text the user typed but
   // never tabbed out of). Called before export/copy so nothing is lost.
   function flushAll() {
@@ -121,96 +177,11 @@ PanelWindow {
     }
     walk(body);
   }
-  function stopDwell() { hoverTimer.stop(); dwell.stop(); dwellProgress = 0; }
-  function startDwell() {
-    if (expanded || !cornerHover.hovered || root.dragging) return;
-    stopDwell();
-    hoverTimer.restart(); dwell.restart();
-  }
-  // Drop the square: snap to a nearby corner, else float where released.
-  function commitDrag() {
-    var cx = root.baseX + root.dragDX + root.btnSize / 2;
-    var cy = root.baseY + root.dragDY + root.btnSize / 2;
-    root.dragDX = 0; root.dragDY = 0;
-    var names = ["topLeft", "topRight", "bottomLeft", "bottomRight"];
-    var px = [0, width, 0, width];
-    var py = [0, 0, height, height];
-    var best = -1; var bestD = 150;
-    for (var i = 0; i < 4; i++) {
-      var dx = cx - px[i], dy = cy - py[i];
-      var d = Math.sqrt(dx * dx + dy * dy);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    if (best >= 0) {
-      cfg.set("corner", names[best]);
-      cfg.set("anchorMode", "corner");
-    } else {
-      cfg.set("anchorMode", "free");
-      cfg.set("freeX", Math.max(0.02, Math.min(0.98, cx / width)));
-      cfg.set("freeY", Math.max(0.02, Math.min(0.98, cy / height)));
-    }
-  }
-
-  onEngagedChanged: { if (engaged) closeTimer.stop(); else if (expanded) closeTimer.restart(); }
   // Refresh the import path each time the card opens so it tracks the
   // current output folder instead of going stale after settings edits.
   onExpandedChanged: { if (expanded) importField.text = cfg.outputDir + "/"; }
 
-  Timer { id: closeTimer; interval: cfg.closeDelay; onTriggered: { if (!root.engaged) root.collapse(); } }
-  Timer { id: hoverTimer; interval: cfg.openDelay; onTriggered: { if (cornerHover.hovered && !root.dragging) root.reveal(); } }
-  NumberAnimation { id: dwell; target: root; property: "dwellProgress"; from: 0; to: 1; duration: cfg.openDelay }
-
-  // ---- corner square with W icon ----
-  Rectangle {
-    id: cornerBtn
-    objectName: "werewolf-sheet-corner"
-    x: root.btnX; y: root.btnY
-    width: root.btnSize; height: root.btnSize
-    radius: 16
-    color: Color.background
-    border.width: 1
-    border.color: cornerHover.hovered ? Color.accent : Util.alpha(Color.foreground, 0.15)
-    opacity: 1 - root.openness * 0.85
-    visible: root.showAnchor && opacity > 0
-    layer.enabled: visible
-    layer.effect: MultiEffect { shadowEnabled: true; shadowColor: "#000000"; shadowOpacity: 0.35; shadowBlur: 0.5; shadowVerticalOffset: 4 }
-    HoverHandler {
-      id: cornerHover
-      onHoveredChanged: { if (hovered) root.startDwell(); else root.stopDwell(); }
-    }
-    // Click-hold to drag the square anywhere; drop near a corner to snap.
-    // A plain tap (no drag) still toggles via TapHandler below.
-    DragHandler {
-      id: dragHandler
-      target: null
-      enabled: root.showAnchor && !cfg.anchorLocked
-      onActiveChanged: {
-        if (active) { root.dragDX = 0; root.dragDY = 0; root.stopDwell(); }
-        else root.commitDrag();
-      }
-      onTranslationChanged: { root.dragDX = translation.x; root.dragDY = translation.y; }
-    }
-    Image {
-      anchors.centerIn: parent
-      width: parent.width - 20; height: parent.height - 20
-      source: Qt.resolvedUrl("anchor-icon.png")
-      fillMode: Image.PreserveAspectFit
-      smooth: true
-      mipmap: true
-    }
-    // dwell fill bar (bottom edge of the square)
-    Rectangle {
-      anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: 8 }
-      height: 2; radius: 1
-      color: "transparent"
-      Rectangle {
-        width: parent.width * root.dwellProgress; height: parent.height
-        radius: 1; color: Color.accent
-        visible: root.dwellProgress > 0 && !root.expanded
-      }
-    }
-    TapHandler { onTapped: root.toggle() }
-  }
+  Timer { id: glowTimer; interval: 1200; repeat: false; onTriggered: { searchGlow.opacity = 0; searchGlow.height = 0; } }
 
   // ---- sheet card ----
   Rectangle {
@@ -228,7 +199,6 @@ PanelWindow {
     border.color: Util.alpha(Color.foreground, 0.15)
     layer.enabled: visible
     layer.effect: MultiEffect { shadowEnabled: true; shadowColor: "#000000"; shadowOpacity: 0.35; shadowBlur: 0.65; shadowVerticalOffset: 8 }
-    HoverHandler { id: panelHover }
 
     Rectangle {
       anchors { top: parent.top; left: parent.left; right: parent.right; margins: 1 }
@@ -236,6 +206,36 @@ PanelWindow {
       gradient: Gradient {
         GradientStop { position: 0; color: Util.alpha(Color.accent, 0.08) }
         GradientStop { position: 1; color: "transparent" }
+      }
+    }
+
+    // Drag handle: the header strip (above the scroll body at y 96).
+    // Grab empty header space to move the card anywhere on the workspace;
+    // the drop position persists. Pin/close buttons and fields below sit
+    // in later siblings, so their clicks still win on their own pixels.
+    Item {
+      id: dragHandle
+      x: 0; y: 0; width: parent.width; height: 96
+      HoverHandler {
+        id: dragHover
+        cursorShape: dragHandler.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+      }
+      DragHandler {
+        id: dragHandler
+        target: null
+        onActiveChanged: {
+          if (active) {
+            root.dragDX = 0; root.dragDY = 0;
+            // Seed free placement from the current corner spot so a first
+            // drag off a snapped corner doesn't jump the card.
+            if (cfg.placeMode !== "free") {
+              cfg.set("posX", root.cornerCardX / root.width);
+              cfg.set("posY", root.cornerCardY / root.height);
+              cfg.set("placeMode", "free");
+            }
+          } else root.commitCardDrag();
+        }
+        onTranslationChanged: { root.dragDX = translation.x; root.dragDY = translation.y; }
       }
     }
 
@@ -265,13 +265,41 @@ PanelWindow {
       }
       Row {
         anchors.right: parent.right; anchors.rightMargin: 14; y: 22; spacing: 2
-        SheetAction { icon: "pin"; hint: cfg.keepOpen ? "Unpin (auto-collapse)" : "Pin open"; selected: cfg.keepOpen; onTriggered: cfg.set("keepOpen", !cfg.keepOpen) }
-        SheetAction { icon: "close"; hint: "Close sheet"; onTriggered: root.collapse() }
+        SheetAction { icon: "pin"; hint: cfg.keepOpen ? "Unpin (allow X to close)" : "Pin (X cannot close)"; selected: cfg.keepOpen; onTriggered: cfg.set("keepOpen", !cfg.keepOpen) }
+        SheetAction { icon: "close"; hint: cfg.keepOpen ? "Pinned — unpin to close" : "Close sheet"; enabled: !cfg.keepOpen; onTriggered: root.collapse() }
+      }
+
+      Row {
+        id: searchRow
+        x: 16; y: 96; width: parent.width - 32
+        spacing: 8
+        TextField {
+          id: searchField
+          width: parent.width - matchCount.width - parent.spacing
+          anchors.verticalCenter: parent.verticalCenter
+          placeholderText: "Search fields… (Enter jumps, Esc clears)"
+          onTextChanged: root.applySearch()
+          Keys.onReturnPressed: function(event) {
+            root.jumpSearch((event.modifiers & Qt.ShiftModifier) ? -1 : 1);
+          }
+          Keys.onEscapePressed: function(event) {
+            if (text !== "") { text = ""; event.accepted = true; }
+          }
+        }
+        Text {
+          id: matchCount
+          width: 44
+          horizontalAlignment: Text.AlignRight
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          color: Util.alpha(Color.foreground, 0.55)
+          font.family: Style.fontFamily; font.pixelSize: 11
+        }
       }
 
       Flickable {
         id: scroller
-        x: 16; y: 96; width: parent.width - 32; height: parent.height - 96 - 64
+        x: 16; y: searchRow.y + searchRow.height + 8; width: parent.width - 32; height: parent.height - (searchRow.y + searchRow.height + 8) - 64
         contentWidth: width
         contentHeight: body.implicitHeight
         clip: true
@@ -313,54 +341,87 @@ PanelWindow {
 
           SectionSeparator { }
           SectionHeader { text: "ATTRIBUTES" }
-          DotRow { label: "Strength"; value: service.str; onDec: function() { service.bump("str", -1, 0, 5); } onInc: function() { service.bump("str", 1, 0, 5); } }
-          DotRow { label: "Dexterity"; value: service.dex; onDec: function() { service.bump("dex", -1, 0, 5); } onInc: function() { service.bump("dex", 1, 0, 5); } }
-          DotRow { label: "Stamina"; value: service.sta; onDec: function() { service.bump("sta", -1, 0, 5); } onInc: function() { service.bump("sta", 1, 0, 5); } }
-          DotRow { label: "Charisma"; value: service.cha; onDec: function() { service.bump("cha", -1, 0, 5); } onInc: function() { service.bump("cha", 1, 0, 5); } }
-          DotRow { label: "Manipulation"; value: service.man; onDec: function() { service.bump("man", -1, 0, 5); } onInc: function() { service.bump("man", 1, 0, 5); } }
-          DotRow { label: "Appearance"; value: service.app; onDec: function() { service.bump("app", -1, 0, 5); } onInc: function() { service.bump("app", 1, 0, 5); } }
-          DotRow { label: "Perception"; value: service.per; onDec: function() { service.bump("per", -1, 0, 5); } onInc: function() { service.bump("per", 1, 0, 5); } }
-          DotRow { label: "Intelligence"; value: service.intl; onDec: function() { service.bump("intl", -1, 0, 5); } onInc: function() { service.bump("intl", 1, 0, 5); } }
-          DotRow { label: "Wits"; value: service.wit; onDec: function() { service.bump("wit", -1, 0, 5); } onInc: function() { service.bump("wit", 1, 0, 5); } }
+          Row {
+            width: parent.width
+            spacing: 8
+            Column {
+              width: (parent.width - parent.spacing * 2) / 3
+              spacing: 6
+              SubHeader { text: "PHYSICAL" }
+              DotCell { label: "Strength"; value: service.str; onDec: function() { service.bump("str", -1, 0, 5); } onInc: function() { service.bump("str", 1, 0, 5); } }
+              DotCell { label: "Dexterity"; value: service.dex; onDec: function() { service.bump("dex", -1, 0, 5); } onInc: function() { service.bump("dex", 1, 0, 5); } }
+              DotCell { label: "Stamina"; value: service.sta; onDec: function() { service.bump("sta", -1, 0, 5); } onInc: function() { service.bump("sta", 1, 0, 5); } }
+            }
+            Column {
+              width: (parent.width - parent.spacing * 2) / 3
+              spacing: 6
+              SubHeader { text: "SOCIAL" }
+              DotCell { label: "Charisma"; value: service.cha; onDec: function() { service.bump("cha", -1, 0, 5); } onInc: function() { service.bump("cha", 1, 0, 5); } }
+              DotCell { label: "Manipulation"; value: service.man; onDec: function() { service.bump("man", -1, 0, 5); } onInc: function() { service.bump("man", 1, 0, 5); } }
+              DotCell { label: "Appearance"; value: service.app; onDec: function() { service.bump("app", -1, 0, 5); } onInc: function() { service.bump("app", 1, 0, 5); } }
+            }
+            Column {
+              width: (parent.width - parent.spacing * 2) / 3
+              spacing: 6
+              SubHeader { text: "MENTAL" }
+              DotCell { label: "Perception"; value: service.per; onDec: function() { service.bump("per", -1, 0, 5); } onInc: function() { service.bump("per", 1, 0, 5); } }
+              DotCell { label: "Intelligence"; value: service.intl; onDec: function() { service.bump("intl", -1, 0, 5); } onInc: function() { service.bump("intl", 1, 0, 5); } }
+              DotCell { label: "Wits"; value: service.wit; onDec: function() { service.bump("wit", -1, 0, 5); } onInc: function() { service.bump("wit", 1, 0, 5); } }
+            }
+          }
 
           SectionSeparator { }
-          SectionHeader { text: "TALENTS" }
-          DotRow { label: "Alertness"; value: service.alertness; onDec: function() { service.bump("alertness", -1, 0, 5); } onInc: function() { service.bump("alertness", 1, 0, 5); } }
-          DotRow { label: "Athletics"; value: service.athletics; onDec: function() { service.bump("athletics", -1, 0, 5); } onInc: function() { service.bump("athletics", 1, 0, 5); } }
-          DotRow { label: "Brawl"; value: service.brawl; onDec: function() { service.bump("brawl", -1, 0, 5); } onInc: function() { service.bump("brawl", 1, 0, 5); } }
-          DotRow { label: "Empathy"; value: service.empathy; onDec: function() { service.bump("empathy", -1, 0, 5); } onInc: function() { service.bump("empathy", 1, 0, 5); } }
-          DotRow { label: "Expression"; value: service.expression; onDec: function() { service.bump("expression", -1, 0, 5); } onInc: function() { service.bump("expression", 1, 0, 5); } }
-          DotRow { label: "Intimidation"; value: service.intimidation; onDec: function() { service.bump("intimidation", -1, 0, 5); } onInc: function() { service.bump("intimidation", 1, 0, 5); } }
-          DotRow { label: "Leadership"; value: service.leadership; onDec: function() { service.bump("leadership", -1, 0, 5); } onInc: function() { service.bump("leadership", 1, 0, 5); } }
-          DotRow { label: "Primal-Urge"; value: service.primalUrge; onDec: function() { service.bump("primalUrge", -1, 0, 5); } onInc: function() { service.bump("primalUrge", 1, 0, 5); } }
-          DotRow { label: "Streetwise"; value: service.streetwise; onDec: function() { service.bump("streetwise", -1, 0, 5); } onInc: function() { service.bump("streetwise", 1, 0, 5); } }
-          DotRow { label: "Subterfuge"; value: service.subterfuge; onDec: function() { service.bump("subterfuge", -1, 0, 5); } onInc: function() { service.bump("subterfuge", 1, 0, 5); } }
-
-          SectionSeparator { }
-          SectionHeader { text: "SKILLS" }
-          DotRow { label: "Animal Ken"; value: service.animalKen; onDec: function() { service.bump("animalKen", -1, 0, 5); } onInc: function() { service.bump("animalKen", 1, 0, 5); } }
-          DotRow { label: "Crafts"; value: service.crafts; onDec: function() { service.bump("crafts", -1, 0, 5); } onInc: function() { service.bump("crafts", 1, 0, 5); } }
-          DotRow { label: "Drive"; value: service.drive; onDec: function() { service.bump("drive", -1, 0, 5); } onInc: function() { service.bump("drive", 1, 0, 5); } }
-          DotRow { label: "Etiquette"; value: service.etiquette; onDec: function() { service.bump("etiquette", -1, 0, 5); } onInc: function() { service.bump("etiquette", 1, 0, 5); } }
-          DotRow { label: "Firearms"; value: service.firearms; onDec: function() { service.bump("firearms", -1, 0, 5); } onInc: function() { service.bump("firearms", 1, 0, 5); } }
-          DotRow { label: "Larceny"; value: service.larceny; onDec: function() { service.bump("larceny", -1, 0, 5); } onInc: function() { service.bump("larceny", 1, 0, 5); } }
-          DotRow { label: "Melee"; value: service.melee; onDec: function() { service.bump("melee", -1, 0, 5); } onInc: function() { service.bump("melee", 1, 0, 5); } }
-          DotRow { label: "Performance"; value: service.performance; onDec: function() { service.bump("performance", -1, 0, 5); } onInc: function() { service.bump("performance", 1, 0, 5); } }
-          DotRow { label: "Stealth"; value: service.stealth; onDec: function() { service.bump("stealth", -1, 0, 5); } onInc: function() { service.bump("stealth", 1, 0, 5); } }
-          DotRow { label: "Survival"; value: service.survival; onDec: function() { service.bump("survival", -1, 0, 5); } onInc: function() { service.bump("survival", 1, 0, 5); } }
-
-          SectionSeparator { }
-          SectionHeader { text: "KNOWLEDGES" }
-          DotRow { label: "Academics"; value: service.academics; onDec: function() { service.bump("academics", -1, 0, 5); } onInc: function() { service.bump("academics", 1, 0, 5); } }
-          DotRow { label: "Computer"; value: service.computer; onDec: function() { service.bump("computer", -1, 0, 5); } onInc: function() { service.bump("computer", 1, 0, 5); } }
-          DotRow { label: "Enigmas"; value: service.enigmas; onDec: function() { service.bump("enigmas", -1, 0, 5); } onInc: function() { service.bump("enigmas", 1, 0, 5); } }
-          DotRow { label: "Investigation"; value: service.investigation; onDec: function() { service.bump("investigation", -1, 0, 5); } onInc: function() { service.bump("investigation", 1, 0, 5); } }
-          DotRow { label: "Law"; value: service.law; onDec: function() { service.bump("law", -1, 0, 5); } onInc: function() { service.bump("law", 1, 0, 5); } }
-          DotRow { label: "Medicine"; value: service.medicine; onDec: function() { service.bump("medicine", -1, 0, 5); } onInc: function() { service.bump("medicine", 1, 0, 5); } }
-          DotRow { label: "Occult"; value: service.occult; onDec: function() { service.bump("occult", -1, 0, 5); } onInc: function() { service.bump("occult", 1, 0, 5); } }
-          DotRow { label: "Rituals"; value: service.rituals; onDec: function() { service.bump("rituals", -1, 0, 5); } onInc: function() { service.bump("rituals", 1, 0, 5); } }
-          DotRow { label: "Science"; value: service.science; onDec: function() { service.bump("science", -1, 0, 5); } onInc: function() { service.bump("science", 1, 0, 5); } }
-          DotRow { label: "Technology"; value: service.technology; onDec: function() { service.bump("technology", -1, 0, 5); } onInc: function() { service.bump("technology", 1, 0, 5); } }
+          SectionHeader { text: "ABILITIES" }
+          // Abilities side by side: Talents | Skills | Knowledges.
+          Row {
+            width: parent.width
+            spacing: 8
+            Column {
+              width: (parent.width - parent.spacing * 2) / 3
+              spacing: 6
+              SubHeader { text: "TALENTS" }
+              DotCell { label: "Alertness"; value: service.alertness; onDec: function() { service.bump("alertness", -1, 0, 5); } onInc: function() { service.bump("alertness", 1, 0, 5); } }
+              DotCell { label: "Athletics"; value: service.athletics; onDec: function() { service.bump("athletics", -1, 0, 5); } onInc: function() { service.bump("athletics", 1, 0, 5); } }
+              DotCell { label: "Brawl"; value: service.brawl; onDec: function() { service.bump("brawl", -1, 0, 5); } onInc: function() { service.bump("brawl", 1, 0, 5); } }
+              DotCell { label: "Empathy"; value: service.empathy; onDec: function() { service.bump("empathy", -1, 0, 5); } onInc: function() { service.bump("empathy", 1, 0, 5); } }
+              DotCell { label: "Expression"; value: service.expression; onDec: function() { service.bump("expression", -1, 0, 5); } onInc: function() { service.bump("expression", 1, 0, 5); } }
+              DotCell { label: "Intimidation"; value: service.intimidation; onDec: function() { service.bump("intimidation", -1, 0, 5); } onInc: function() { service.bump("intimidation", 1, 0, 5); } }
+              DotCell { label: "Leadership"; value: service.leadership; onDec: function() { service.bump("leadership", -1, 0, 5); } onInc: function() { service.bump("leadership", 1, 0, 5); } }
+              DotCell { label: "Primal-Urge"; value: service.primalUrge; onDec: function() { service.bump("primalUrge", -1, 0, 5); } onInc: function() { service.bump("primalUrge", 1, 0, 5); } }
+              DotCell { label: "Streetwise"; value: service.streetwise; onDec: function() { service.bump("streetwise", -1, 0, 5); } onInc: function() { service.bump("streetwise", 1, 0, 5); } }
+              DotCell { label: "Subterfuge"; value: service.subterfuge; onDec: function() { service.bump("subterfuge", -1, 0, 5); } onInc: function() { service.bump("subterfuge", 1, 0, 5); } }
+            }
+            Column {
+              width: (parent.width - parent.spacing * 2) / 3
+              spacing: 6
+              SubHeader { text: "SKILLS" }
+              DotCell { label: "Animal Ken"; value: service.animalKen; onDec: function() { service.bump("animalKen", -1, 0, 5); } onInc: function() { service.bump("animalKen", 1, 0, 5); } }
+              DotCell { label: "Crafts"; value: service.crafts; onDec: function() { service.bump("crafts", -1, 0, 5); } onInc: function() { service.bump("crafts", 1, 0, 5); } }
+              DotCell { label: "Drive"; value: service.drive; onDec: function() { service.bump("drive", -1, 0, 5); } onInc: function() { service.bump("drive", 1, 0, 5); } }
+              DotCell { label: "Etiquette"; value: service.etiquette; onDec: function() { service.bump("etiquette", -1, 0, 5); } onInc: function() { service.bump("etiquette", 1, 0, 5); } }
+              DotCell { label: "Firearms"; value: service.firearms; onDec: function() { service.bump("firearms", -1, 0, 5); } onInc: function() { service.bump("firearms", 1, 0, 5); } }
+              DotCell { label: "Larceny"; value: service.larceny; onDec: function() { service.bump("larceny", -1, 0, 5); } onInc: function() { service.bump("larceny", 1, 0, 5); } }
+              DotCell { label: "Melee"; value: service.melee; onDec: function() { service.bump("melee", -1, 0, 5); } onInc: function() { service.bump("melee", 1, 0, 5); } }
+              DotCell { label: "Performance"; value: service.performance; onDec: function() { service.bump("performance", -1, 0, 5); } onInc: function() { service.bump("performance", 1, 0, 5); } }
+              DotCell { label: "Stealth"; value: service.stealth; onDec: function() { service.bump("stealth", -1, 0, 5); } onInc: function() { service.bump("stealth", 1, 0, 5); } }
+              DotCell { label: "Survival"; value: service.survival; onDec: function() { service.bump("survival", -1, 0, 5); } onInc: function() { service.bump("survival", 1, 0, 5); } }
+            }
+            Column {
+              width: (parent.width - parent.spacing * 2) / 3
+              spacing: 6
+              SubHeader { text: "KNOWLEDGES" }
+              DotCell { label: "Academics"; value: service.academics; onDec: function() { service.bump("academics", -1, 0, 5); } onInc: function() { service.bump("academics", 1, 0, 5); } }
+              DotCell { label: "Computer"; value: service.computer; onDec: function() { service.bump("computer", -1, 0, 5); } onInc: function() { service.bump("computer", 1, 0, 5); } }
+              DotCell { label: "Enigmas"; value: service.enigmas; onDec: function() { service.bump("enigmas", -1, 0, 5); } onInc: function() { service.bump("enigmas", 1, 0, 5); } }
+              DotCell { label: "Investigation"; value: service.investigation; onDec: function() { service.bump("investigation", -1, 0, 5); } onInc: function() { service.bump("investigation", 1, 0, 5); } }
+              DotCell { label: "Law"; value: service.law; onDec: function() { service.bump("law", -1, 0, 5); } onInc: function() { service.bump("law", 1, 0, 5); } }
+              DotCell { label: "Medicine"; value: service.medicine; onDec: function() { service.bump("medicine", -1, 0, 5); } onInc: function() { service.bump("medicine", 1, 0, 5); } }
+              DotCell { label: "Occult"; value: service.occult; onDec: function() { service.bump("occult", -1, 0, 5); } onInc: function() { service.bump("occult", 1, 0, 5); } }
+              DotCell { label: "Rituals"; value: service.rituals; onDec: function() { service.bump("rituals", -1, 0, 5); } onInc: function() { service.bump("rituals", 1, 0, 5); } }
+              DotCell { label: "Science"; value: service.science; onDec: function() { service.bump("science", -1, 0, 5); } onInc: function() { service.bump("science", 1, 0, 5); } }
+              DotCell { label: "Technology"; value: service.technology; onDec: function() { service.bump("technology", -1, 0, 5); } onInc: function() { service.bump("technology", 1, 0, 5); } }
+            }
+          }
 
           SectionSeparator { }
           SectionHeader { text: "RENOWN / POOLS" }
@@ -438,6 +499,17 @@ PanelWindow {
             SheetButton { label: "Import"; hint: "Load sheet from the path above"; onPressed: function() { service.importSheet(importField.text); } }
           }
         }
+
+        // Jump highlight: floats above the rows (direct Flickable child so
+        // the Column never repositions it), fades via glowTimer below.
+        Rectangle {
+          id: searchGlow
+          width: body.width; height: 0
+          radius: 8
+          color: Util.alpha(Color.accent, 0.16)
+          opacity: 0
+          Behavior on opacity { NumberAnimation { duration: 250 } }
+        }
       }
 
       Rectangle {
@@ -446,7 +518,7 @@ PanelWindow {
       }
       Text {
         x: 18; y: parent.height - 40; width: parent.width - 36
-        text: root.showAnchor ? (cfg.anchorLocked ? "Square locked · unlock in settings to drag · Esc closes" : "Drag the W square to move · drop near a corner to snap · Esc closes") : "Square hidden — open from the bar icon · Esc closes"
+        text: cfg.keepOpen ? "Pinned — unpin to close · drag the header to move" : "Drag the header to move · X or Esc closes · pin blocks closing"
         textFormat: Text.PlainText; elide: Text.ElideRight
         color: Util.alpha(Color.foreground, 0.45)
         font.family: Style.fontFamily; font.pixelSize: 10
@@ -465,13 +537,44 @@ PanelWindow {
   }
 
   // ---- reusable rows ----
-  component SectionHeader: Text {
+  // Sheet section title (Identity, Attributes, Abilities, ...): large,
+  // with a rule underneath to section it off from its rows.
+  component SectionHeader: Column {
+    property bool isSectionHeader: true
+    property int headerLevel: 0
+    property bool searchDim: false
+    property alias text: caption.text
+    opacity: searchDim ? 0.35 : 1
+    width: parent ? parent.width : 0
+    spacing: 4
+    Text {
+      id: caption
+      textFormat: Text.PlainText
+      color: Color.accent
+      font.family: Style.fontFamily
+      font.pixelSize: 16
+      font.bold: true
+      font.letterSpacing: 1.2
+    }
+    Rectangle {
+      width: parent.width; height: 2
+      color: Util.alpha(Color.accent, 0.35)
+    }
+  }
+
+  // Sub title inside a section (Physical / Social / Mental, Talents /
+  // Skills / Knowledges): same accent style, a step smaller than sections.
+  component SubHeader: Text {
+    property bool isSectionHeader: true
+    property int headerLevel: 1
+    property bool searchDim: false
+    opacity: searchDim ? 0.35 : 1
     textFormat: Text.PlainText
     color: Color.accent
     font.family: Style.fontFamily
-    font.pixelSize: 10
+    font.pixelSize: 12
     font.bold: true
-    font.letterSpacing: 1.2
+    font.letterSpacing: 0.8
   }
 
   // Divider between sheet groups (identity / attributes / talents / ...),
@@ -489,6 +592,9 @@ PanelWindow {
   component FieldRow: Row {
     property string label: ""
     property string initial: ""
+    // search: dimmed when the query matches neither label nor section
+    property bool searchMatch: true
+    opacity: searchMatch ? 1 : 0.22
     signal commit(string value)
     // Push the visible text into the sheet (used by the Set button and
     // by flushAll before export — committing an unchanged value is a no-op).
@@ -526,6 +632,9 @@ PanelWindow {
     property string label: ""
     property int value: 0
     property int max: 5
+    // search: dimmed when the query matches neither label nor section
+    property bool searchMatch: true
+    opacity: searchMatch ? 1 : 0.22
     signal dec()
     signal inc()
     width: parent ? parent.width : 0
@@ -549,9 +658,59 @@ PanelWindow {
     WidgetButton { text: "+"; onPressed: function() { parent.inc(); } }
   }
 
+  // Compact dot cell for the 3-column abilities block (Talents | Skills |
+  // Knowledges). Same data contract as DotRow, but tiny −/+ text hit areas
+  // instead of full push-buttons so three columns fit the card.
+  component DotCell: Row {
+    property string label: ""
+    property int value: 0
+    property int max: 5
+    // search: dimmed when the query matches neither label nor section
+    property bool searchMatch: true
+    opacity: searchMatch ? 1 : 0.22
+    signal dec()
+    signal inc()
+    width: parent ? parent.width : 0
+    spacing: 4
+    Text {
+      text: parent.label; textFormat: Text.PlainText
+      width: parent.width - 62
+      color: Color.foreground
+      font.family: Style.fontFamily; font.pixelSize: 11
+      anchors.verticalCenter: parent.verticalCenter
+      elide: Text.ElideRight
+    }
+    Text {
+      text: parent.value; textFormat: Text.PlainText
+      width: 18; horizontalAlignment: Text.AlignHCenter
+      color: Color.accent
+      font.family: Style.fontFamily; font.pixelSize: 11; font.bold: true
+      anchors.verticalCenter: parent.verticalCenter
+    }
+    Text {
+      text: "−"; textFormat: Text.PlainText
+      width: 16; horizontalAlignment: Text.AlignHCenter
+      color: decMouse.containsMouse ? Color.accent : Util.alpha(Color.foreground, 0.55)
+      font.family: Style.fontFamily; font.pixelSize: 13; font.bold: true
+      anchors.verticalCenter: parent.verticalCenter
+      MouseArea { id: decMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: parent.parent.dec() }
+    }
+    Text {
+      text: "+"; textFormat: Text.PlainText
+      width: 16; horizontalAlignment: Text.AlignHCenter
+      color: incMouse.containsMouse ? Color.accent : Util.alpha(Color.foreground, 0.55)
+      font.family: Style.fontFamily; font.pixelSize: 13; font.bold: true
+      anchors.verticalCenter: parent.verticalCenter
+      MouseArea { id: incMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: parent.parent.inc() }
+    }
+  }
+
   component MultiLine: Column {
     property string label: ""
     property string initial: ""
+    // search: dimmed when the query matches neither label nor section
+    property bool searchMatch: true
+    opacity: searchMatch ? 1 : 0.22
     signal commit(string value)
     // Same flush contract as FieldRow (see above).
     function flush() { commit(ta.text); }

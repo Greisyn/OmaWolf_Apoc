@@ -1,6 +1,6 @@
-# Werewolf Sheet — floating Omarchy plugin
+# Werewolf Sheet — bar-icon Omarchy plugin
 
-Corner-anchored WTA20 character sheet editor, in the style of
+Bar-icon-driven WTA20 character sheet editor, in the style of
 `io.github.i12bp8.oshelf` / `local.cliamp-dock`.
 
 ## Install
@@ -12,20 +12,30 @@ omarchy plugin add https://github.com/Greisyn/OmaWolf_Apoc.git --enable
   Renown/pools, Gifts/Backgrounds/notes.
 - **Export plain text for LLM roleplay**: same format as
   `~/Pictures/werewolf_sheet.py` (`WEREWOLF: THE APOCALYPSE 20th - CHARACTER SHEET`).
-- **Floating + corner-anchored**: dwell the corner handle to reveal,
-  leave to collapse, pin open, Esc closes. Corner (TL/TR/BL/BR) + size in settings.
+- **Bar icon only, no floating anchor**: left-click the bar icon toggles the
+  sheet card, right-click opens settings. Both cards stay open — no
+  hover-dwell, no auto-collapse, no click-off dismiss. The sheet closes via
+  its X (or Esc / bar toggle); pin blocks closing entirely until unpinned.
+  Settings closes itself a few moments after the mouse leaves it (or
+  instantly on an outside click) — or via its Close button / another
+  right-click.
 - **Output path is configurable**: settings panel + sheet footer. Default:
   `~/Pictures/<Name>.txt` (one file per character)
+- **Field search**: the bar above the sheet filters entry spots by name —
+  matching rows stay bright while the rest dim (searching `talent` shows the
+  whole TALENTS group). Enter jumps to the next match with a highlight flash
+  (Shift+Enter goes back), Esc clears the query.
 - **Theme-aware**: all chrome uses `Color.*` / `Style.*` — omarchy themes repaint it live.
-- **Floating W anchor (drives-style)**: small always-visible square in a screen
-  corner showing your transparent `icon.png` — hover-dwell or tap reveals the
-  sheet, leaving collapses it. Toggleable (off = bar icon only), resizable.
-- **Drag to move, snap to lock**: click-hold the square and drag it anywhere on
-  the workspace; drop near a corner to snap/lock it there, else it floats free
-  (card opens beside it). Settings has a lock switch to disable dragging, and
-  corner buttons to snap it back. Placement persists in the prefs JSON.
+- **Card placement**: parks in a screen corner (TL/TR/BL/BR) + size in
+  settings (minimum 600 × 550) — or drag the card by its header to float it
+  anywhere on the workspace; the drop position is saved and corner buttons
+  snap it back.
+- **Abilities in columns**: Talents | Skills | Knowledges sit side by side
+  under an ABILITIES section title, with compact −/+ steppers instead of
+  full-width buttons. Attributes group the same way under Physical | Social
+  | Mental. Section titles are large, sub titles a step smaller.
 - **Logo**: transparent `W20Logo-1024x369.png` from `~/Pictures` at the top of
-  the card and settings panel (`logo.png`); W icon as anchor + bar symbol
+  the card and settings panel (`logo.png`); W icon as the bar symbol
   (`anchor-icon.png`, from `~/Pictures/icon.png`). To swap art later, replace
   those two files and run `omarchy-shell shell rescanPlugins`.
 
@@ -33,14 +43,14 @@ omarchy plugin add https://github.com/Greisyn/OmaWolf_Apoc.git --enable
 
 - `manifest.json` — service + bar-widget
 - `SheetService.qml` — character data, JSON persistence, export, per-screen windows, IPC
-- `SheetWindow.qml` — floating editor card (logo-only header, icon pin/close actions)
+- `SheetWindow.qml` — sheet editor card (logo-only header, icon pin/close actions)
 - `SheetGlyph.qml` / `SheetAction.qml` — theme-aware line-icon buttons (pin/close/check style)
-- `SheetConfig.qml` — corner/size/motion/output prefs → `~/.config/omarchy/local.werewolf-sheet.json`
+- `SheetConfig.qml` — card corner/size/motion/output prefs → `~/.config/omarchy/local.werewolf-sheet.json`
 - `Sheet.js` — field lists + plain-text renderer
-- `BarWidget.qml` — bar icon (left = toggle, right = settings)
-- `Panel.qml` — settings (anchor square, corner, size, output path, motion)
+- `BarWidget.qml` — bar icon (left = toggle sheet, right = settings)
+- `Panel.qml` — settings (card placement, size, output path, motion)
 - `logo.png` — Werewolf 20th logo from the PDF
-- `anchor-icon.png` — W icon for the floating square + bar (`~/Pictures/icon.png`)
+- `anchor-icon.png` — W icon for the bar (`~/Pictures/icon.png`)
 
 ## Actions
 
